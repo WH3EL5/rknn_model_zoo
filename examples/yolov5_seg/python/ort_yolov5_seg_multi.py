@@ -500,4 +500,4 @@ def main():
 if __name__ == "__main__":
     main()
 
-# python python/ort_yolov5_multi.py --model model/yolov5s.onnx --source model/bus.jpg --save_dir python/result_ort --providers CPUExecutionProvider
+# python python/ort_yolov5_multi.py --model model/yolov5n-seg.onnx --source model/bus.jpg --save_dir ./result_ort --providers CPUExecutionProvider
