@@ -168,6 +168,13 @@ def decode_yolov5_head(output: np.ndarray, anchors: np.ndarray, input_size):
     return boxes_xyxy, objectness, class_scores, mask_coeffs
 
 
+def decode_seg_coeff_head(seg_output: np.ndarray, num_anchors: int):
+    _, c, h, w = seg_output.shape
+    per_anchor_dim = c // num_anchors
+    feat = seg_output.reshape(1, num_anchors, per_anchor_dim, h, w)[0]
+    return feat.transpose(0, 2, 3, 1).reshape(-1, per_anchor_dim)
+
+
 def sigmoid(x: np.ndarray) -> np.ndarray:
     return 1.0 / (1.0 + np.exp(-x))
 
@@ -234,14 +241,23 @@ def restore_masks_to_original(masks: np.ndarray, ratio: float, pad, original_sha
 
 def post_process(outputs, input_size, obj_thresh, nms_thresh):
     if not outputs:
-        return None, None, None
+        return None, None, None, None
 
     det_heads = [o for o in outputs if isinstance(o, np.ndarray) and o.ndim == 4 and o.shape[1] % 3 == 0 and o.shape[1] >= 255]
-    proto_candidates = [o for o in outputs if isinstance(o, np.ndarray) and o.ndim == 4 and o.shape[1] < 128]
+    seg_heads = [o for o in outputs if isinstance(o, np.ndarray) and o.ndim == 4 and o.shape[1] % 3 == 0 and 0 < o.shape[1] < 255]
+    proto_candidates = [
+        o
+        for o in outputs
+        if isinstance(o, np.ndarray)
+        and o.ndim == 4
+        and o.shape[1] < o.shape[2]
+        and o.shape[1] < o.shape[3]
+    ]
 
     # Multi-output head mode: e.g. seg [(1,351,80,80), (1,351,40,40), (1,351,20,20), (1,32,160,160)].
     if len(det_heads) >= 3:
         outputs_sorted = sorted(det_heads[:3], key=lambda x: x.shape[-1], reverse=True)
+        seg_sorted = sorted(seg_heads[:3], key=lambda x: x.shape[-1], reverse=True)
         boxes_list, obj_list, cls_list, seg_list = [], [], [], []
 
         for i, out in enumerate(outputs_sorted):
@@ -253,7 +269,13 @@ def post_process(outputs, input_size, obj_thresh, nms_thresh):
             boxes_list.append(boxes_i)
             obj_list.append(obj_i)
             cls_list.append(cls_i)
-            seg_list.append(seg_i)
+
+            if seg_i.shape[1] > 0:
+                seg_list.append(seg_i)
+            elif i < len(seg_sorted):
+                seg_out = np.asarray(seg_sorted[i], dtype=np.float32)
+                if seg_out.shape[0] == 1 and seg_out.shape[2] == out.shape[2] and seg_out.shape[3] == out.shape[3]:
+                    seg_list.append(decode_seg_coeff_head(seg_out, YOLOV5_ANCHORS[i].shape[0]))
 
         boxes = np.concatenate(boxes_list, axis=0)
         objectness = np.concatenate(obj_list, axis=0)
@@ -270,7 +292,8 @@ def post_process(outputs, input_size, obj_thresh, nms_thresh):
         if pred.ndim != 2:
             raise ValueError(f"Unexpected YOLOv5 output shape: {outputs[0].shape}")
 
-        if pred.shape[1] < pred.shape[0]:
+        # Keep [N, C] and transpose [C, N] into [N, C].
+        if pred.shape[0] <= 200 and pred.shape[1] > pred.shape[0]:
             pred = pred.T
 
         if pred.shape[1] <= 5:
@@ -293,7 +316,7 @@ def post_process(outputs, input_size, obj_thresh, nms_thresh):
     seg_coeffs = seg_coeffs[keep_mask] if seg_coeffs.size else seg_coeffs
 
     if boxes.size == 0:
-        return None, None, None
+        return None, None, None, None
 
     nboxes, nclasses, nscores, nseg = [], [], [], []
     for c in set(classes.tolist()):
@@ -312,7 +335,7 @@ def post_process(outputs, input_size, obj_thresh, nms_thresh):
                 nseg.append(seg[keep])
 
     if not nboxes:
-        return None, None, None
+        return None, None, None, None
 
     boxes = np.concatenate(nboxes)
     classes = np.concatenate(nclasses)
