@@ -1,5 +1,6 @@
 import os
 import time
+import argparse
 from pathlib import Path
 
 import cv2
@@ -35,6 +36,7 @@ DEFAULT_OBJ_THRESH = 0.5
 DEFAULT_NMS_THRESH = 0.4
 DEFAULT_INPUT_SIZE = 640
 DEFAULT_IMG_SHOW = False
+DEFAULT_KPT_THRESH = 0.5
 
 
 def is_image_file(file_path: str) -> bool:
@@ -375,14 +377,48 @@ def resolve_model_path(model_arg: str) -> str:
 
 
 def main():
-    model_path = resolve_model_path(DEFAULT_MODEL)
-    images = collect_images(DEFAULT_SOURCE)
-    os.makedirs(DEFAULT_SAVE_DIR, exist_ok=True)
+    parser = argparse.ArgumentParser("YOLOv8 ONNX Runtime inference")
+    parser.add_argument(
+        "--model",
+        type=str,
+        required=True,
+        help="ONNX model path",
+    )
+    parser.add_argument("--source", type=str, default=DEFAULT_SOURCE, help="Image path or image directory")
+    parser.add_argument("--save_dir", type=str, default="./result_ort", help="Directory to save results")
+    parser.add_argument("--obj_thresh", type=float, default=0.25, help="Objectness threshold")
+    parser.add_argument("--nms_thresh", type=float, default=0.45, help="NMS IoU threshold")
+    parser.add_argument(
+        "--providers",
+        type=str,
+        default="CPUExecutionProvider",
+        help="Comma-separated ORT providers, e.g. CPUExecutionProvider or CUDAExecutionProvider,CPUExecutionProvider",
+    )
+    parser.add_argument(
+        "--input_size",
+        type=int,
+        default=640,
+        help="Fallback input size for dynamic ONNX input (used if model input shape is dynamic)",
+    )
+    parser.add_argument("--img_show", action="store_true", help="Show result windows")
+    parser.add_argument("--kpt_thresh", type=float, default=DEFAULT_KPT_THRESH, help="Keypoint score threshold")
+    args = parser.parse_args()
+
+    model_path = resolve_model_path(args.model)
+    images = collect_images(args.source)
+    os.makedirs(args.save_dir, exist_ok=True)
+
+    providers = [p.strip() for p in args.providers.split(",") if p.strip()]
+    if not providers:
+        providers = DEFAULT_PROVIDERS
+
+    # OBB script keeps this argument for compatibility with a shared CLI style.
+    _ = args.kpt_thresh
 
     model_name = Path(model_path).stem
     print(f"\n=== Running model: {model_path} ===")
 
-    detector = YoloV8OrtDetector(model_path, providers=DEFAULT_PROVIDERS, fallback_input_size=DEFAULT_INPUT_SIZE)
+    detector = YoloV8OrtDetector(model_path, providers=providers, fallback_input_size=args.input_size)
     print(f"Input size: {detector.input_w}x{detector.input_h}")
     print(f"Providers: {detector.session.get_providers()}")
 
@@ -395,8 +431,8 @@ def main():
 
         rboxes, classes, scores, elapsed_ms = detector.infer(
             image,
-            obj_thresh=DEFAULT_OBJ_THRESH,
-            nms_thresh=DEFAULT_NMS_THRESH,
+            obj_thresh=args.obj_thresh,
+            nms_thresh=args.nms_thresh,
         )
         times.append(elapsed_ms)
 
@@ -406,21 +442,21 @@ def main():
             draw_detections(vis, rboxes, scores, classes)
 
         save_name = f"{Path(img_path).stem}_{model_name}.jpg"
-        save_path = str(Path(DEFAULT_SAVE_DIR) / save_name)
+        save_path = str(Path(args.save_dir) / save_name)
         cv2.imwrite(save_path, vis)
         legacy_result_path = str(SCRIPT_DIR / "result.jpg")
         cv2.imwrite(legacy_result_path, vis)
 
         print(f"{Path(img_path).name}: {det_count} objects, {elapsed_ms:.2f} ms -> {save_path}")
 
-        if DEFAULT_IMG_SHOW:
+        if args.img_show:
             cv2.imshow(f"{model_name} - {Path(img_path).name}", vis)
             cv2.waitKey(0)
 
     if times:
         print(f"Average latency ({model_name}): {np.mean(times):.2f} ms over {len(times)} image(s)")
 
-    if DEFAULT_IMG_SHOW:
+    if args.img_show:
         cv2.destroyAllWindows()
 
 
