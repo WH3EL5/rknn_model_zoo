@@ -149,7 +149,7 @@ def quantize_one_model(
         model_output=output_path,
         calibration_data_reader=data_reader,
         calibrate_method=calibrate_method,
-        quant_format=QuantFormat.QDQ,
+        quant_format=QuantFormat.QOperator,
         activation_type=activation_type,
         weight_type=weight_type,
         per_channel=per_channel,

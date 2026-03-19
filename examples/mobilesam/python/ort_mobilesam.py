@@ -217,9 +217,11 @@ class MobileSamOrtPredictor:
     def infer(self, image_bgr: np.ndarray, point_coords: np.ndarray, point_labels: np.ndarray, mask_input_path=None):
         encoder_input, input_shape = self._prepare_encoder_input(image_bgr)
 
-        t0 = time.perf_counter()
-        image_embeddings = self.encoder_sess.run(None, {self.encoder_input_name: encoder_input})[0]
-        encoder_ms = (time.perf_counter() - t0) * 1000.0
+        for _ in range(6):
+            if _ == 1:
+                t0 = time.perf_counter()
+            image_embeddings = self.encoder_sess.run(None, {self.encoder_input_name: encoder_input})[0]
+        encoder_ms = (time.perf_counter() - t0) * 1000.0 / 5
 
         coords = coords_preprocess(point_coords[None, :, :], image_bgr.shape[:2], self.input_size).astype(np.float32)
         labels = point_labels[None, :].astype(np.float32)
@@ -258,9 +260,11 @@ class MobileSamOrtPredictor:
                 if idx < len(ordered_inputs)
             }
 
-        t1 = time.perf_counter()
-        decoder_outputs = self.decoder_sess.run(None, decoder_feed)
-        decoder_ms = (time.perf_counter() - t1) * 1000.0
+        for _ in range(6):
+            if _ == 1:
+                t1 = time.perf_counter()
+            decoder_outputs = self.decoder_sess.run(None, decoder_feed)
+        decoder_ms = (time.perf_counter() - t1) * 1000.0 / 5
 
         output_map = {name: out for name, out in zip(self.decoder_output_names, decoder_outputs)}
         if "iou_predictions" in output_map:

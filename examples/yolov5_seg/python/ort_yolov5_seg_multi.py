@@ -401,10 +401,11 @@ class YoloV5OrtDetector:
         input_tensor = image_rgb.transpose(2, 0, 1).astype(np.float32)[None, ...] / 255.0
 
         outputs = self.session.run(None, {self.input_name: input_tensor})
-        t0 = time.perf_counter()
-        for i in range(10):
+        for i in range(6):
+            if i == 1:
+                t0 = time.perf_counter()
             outputs = self.session.run(None, {self.input_name: input_tensor})
-        elapsed_ms = (time.perf_counter() - t0) * 1000.0 / 10.0
+        elapsed_ms = (time.perf_counter() - t0) * 1000.0 / 5
 
         boxes, classes, scores, masks = post_process(
             outputs,
