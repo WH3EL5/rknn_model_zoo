@@ -16,6 +16,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
+#include <sys/time.h>
 
 #include "yolov7.h"
 #include "common.h"
@@ -47,7 +48,7 @@ int init_yolov7_model(const char *model_path, rknn_app_context_t *app_ctx)
         return -1;
     }
 
-    ret = rknn_init(&ctx, model, model_len, 0, NULL);
+    ret = rknn_init(&ctx, model, model_len, RKNN_FLAG_COLLECT_PERF_MASK, NULL);
     free(model);
     if (ret < 0)
     {
@@ -156,6 +157,11 @@ int release_yolov7_model(rknn_app_context_t *app_ctx)
     return 0;
 }
 
+long long __get_us(struct timeval *time)
+{
+    return time->tv_sec * 1000000 + time->tv_usec;
+}
+
 int inference_yolov7_model(rknn_app_context_t *app_ctx, image_buffer_t *img, object_detect_result_list *od_results)
 {
     int ret;
@@ -166,6 +172,9 @@ int inference_yolov7_model(rknn_app_context_t *app_ctx, image_buffer_t *img, obj
     const float nms_threshold = NMS_THRESH;      // 默认的NMS阈值
     const float box_conf_threshold = BOX_THRESH; // 默认的置信度阈值
     int bg_color = 114;
+    struct timeval start_time, end_time;
+    rknn_perf_detail perf_detail;
+    long long time_us;
     TIMER timer;
     timer.indent_set("");
 
@@ -248,6 +257,21 @@ int inference_yolov7_model(rknn_app_context_t *app_ctx, image_buffer_t *img, obj
     }
     timer.tok();
     timer.print_time("rknn_outputs_get");
+
+    printf("Inference 10 times for more stable performance testing...\n");
+    gettimeofday(&start_time, NULL);
+    for (int i = 0; i < 10; i++)
+    {
+        rknn_inputs_set(app_ctx->rknn_ctx, app_ctx->io_num.n_input, inputs);
+        rknn_run(app_ctx->rknn_ctx, nullptr);
+        rknn_outputs_get(app_ctx->rknn_ctx, app_ctx->io_num.n_output, outputs, NULL);
+        ret = rknn_outputs_release(app_ctx->rknn_ctx, app_ctx->io_num.n_output, outputs);
+    }
+    gettimeofday(&end_time, NULL);
+    printf("Average Inference time: %lld us\n", (__get_us(&end_time) - __get_us(&start_time)) / 10);
+
+    ret = rknn_query(app_ctx->rknn_ctx, RKNN_QUERY_PERF_DETAIL, &perf_detail, sizeof(perf_detail));
+    printf("%s\n", perf_detail.perf_data);
 
     // Post Process
     timer.tik();
