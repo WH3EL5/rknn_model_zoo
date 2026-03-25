@@ -16,6 +16,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
+#include <sys/time.h>
 
 #include "yolov5.h"
 #include "common.h"
@@ -155,7 +156,7 @@ int release_yolov5_model(rknn_app_context_t *app_ctx)
     return 0;
 }
 
-longlong __get_us(struct timeval *time)
+long long __get_us(struct timeval *time)
 {
     return ((long long)time->tv_sec * 1000000LL + time->tv_usec);
 }
@@ -171,6 +172,8 @@ int inference_yolov5_model(rknn_app_context_t *app_ctx, image_buffer_t *img, obj
     const float box_conf_threshold = BOX_THRESH; // Default box threshold
     int bg_color = 114;
     struct timeval start_time, end_time;
+    long long time_us;
+    rknn_perf_detail perf_detail;
 
     if ((!app_ctx) || !(img) || (!od_results))
     {
@@ -242,7 +245,7 @@ int inference_yolov5_model(rknn_app_context_t *app_ctx, image_buffer_t *img, obj
         goto out;
     }
     gettimeofday(&end_time, NULL);
-    long long time_us = __get_us(&end_time) - __get_us(&start_time);
+    time_us = __get_us(&end_time) - __get_us(&start_time);
     printf("First Inference time: %lld us\n", time_us);
 
     printf("Inference 10 times for more stable performance testing...\n");
@@ -256,7 +259,6 @@ int inference_yolov5_model(rknn_app_context_t *app_ctx, image_buffer_t *img, obj
     }
     gettimeofday(&end_time, NULL);
     printf("Average Inference time: %lld us\n", (__get_us(&end_time) - __get_us(&start_time)) / 10);
-    rknn_perf_detail perf_detail;
     ret = rknn_query(app_ctx->rknn_ctx, RKNN_QUERY_PERF_DETAIL, &perf_detail, sizeof(perf_detail));
     printf("%s", perf_detail.perf_data);
 
