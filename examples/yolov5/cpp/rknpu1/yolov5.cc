@@ -47,7 +47,7 @@ int init_yolov5_model(const char *model_path, rknn_app_context_t *app_ctx)
         return -1;
     }
 
-    ret = rknn_init(&ctx, model, model_len, 0);
+    ret = rknn_init(&ctx, model, model_len, RKNN_FLAG_COLLECT_PERF_MASK);
     free(model);
     if (ret < 0)
     {
@@ -260,7 +260,7 @@ int inference_yolov5_model(rknn_app_context_t *app_ctx, image_buffer_t *img, obj
     gettimeofday(&end_time, NULL);
     printf("Average Inference time: %lld us\n", (__get_us(&end_time) - __get_us(&start_time)) / 10);
     ret = rknn_query(app_ctx->rknn_ctx, RKNN_QUERY_PERF_DETAIL, &perf_detail, sizeof(perf_detail));
-    printf("%s", perf_detail.perf_data);
+    printf("%s\n", perf_detail.perf_data);
 
     // Post Process
     post_process(app_ctx, outputs, &letter_box, box_conf_threshold, nms_threshold, od_results);
