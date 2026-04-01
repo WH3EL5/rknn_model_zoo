@@ -44,7 +44,7 @@ int init_mobilesam_model_utils(rknn_mobilesam_context* mobilesam_ctx, const char
     rknn_context ctx = 0;
 
     // Load RKNN Model
-    ret = rknn_init(&ctx, (char*)model_path, 0, 0, NULL);
+    ret = rknn_init(&ctx, (char*)model_path, 0, RKNN_FLAG_COLLECT_PERF_MASK, NULL);
     if (ret < 0)
     {
         printf("rknn_init fail ret=%d\n", ret);

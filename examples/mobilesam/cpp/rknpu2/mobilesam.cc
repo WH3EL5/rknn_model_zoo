@@ -15,6 +15,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/time.h>
 
 #include "mobilesam.h"
 #include "common.h"
@@ -54,10 +55,18 @@ int release_mobilesam_model(rknn_app_context_t* app_ctx)
 
 }
 
+long long __get_us(struct timeval* time)
+{
+    return ((long long)time->tv_sec * 1000000LL + time->tv_usec);
+}
+
 int inference_mobilesam_model(rknn_app_context_t* app_ctx, image_buffer_t* img, float* point_coords, float* point_labels, mobilesam_res* res)
 {
     int ret;
     int* tokens;
+    struct timeval start_time, end_time;
+    long long time_us;
+    rknn_perf_detail perf_detail;
 
     if ((!app_ctx) || (!img))
     {
@@ -77,7 +86,8 @@ int inference_mobilesam_model(rknn_app_context_t* app_ctx, image_buffer_t* img, 
     memset(low_res_masks, 0, sizeof(low_res_masks));
     memset(res, 0, sizeof(mobilesam_res));
 
-    printf("--> inference mobilesam encoder model\n");
+    printf("--> inference mobilesam encoder model First time\n");
+    gettimeofday(&start_time, NULL);
     ret = inference_mobilesam_encoder_utils(&(app_ctx->encoder), img, img_embeds_nchw);
     if (ret != 0)
     {
@@ -95,6 +105,27 @@ int inference_mobilesam_model(rknn_app_context_t* app_ctx, image_buffer_t* img, 
         printf("inference mobilesam decoder model fail! ret=%d\n", ret);
        return -1;
     }
+    gettimeofday(&end_time, NULL);
+    time_us = __get_us(&end_time) - __get_us(&start_time);
+    printf("inference mobilesam decoder model time=%lld us\n", time_us);
+
+    printf("Inference 10 times for more stable performance testing...\n");
+    gettimeofday(&start_time, NULL);
+    for(int i = 0; i < 10; i++)
+    {
+        inference_mobilesam_encoder_utils(&(app_ctx->encoder), img, img_embeds_nchw);
+        rknn_nchw_2_nhwc(img_embeds_nchw, img_embeds_nhwc, app_ctx->encoder.output_attrs[0].dims[0], app_ctx->encoder.output_attrs[0].dims[1],
+                                                       app_ctx->encoder.output_attrs[0].dims[2], app_ctx->encoder.output_attrs[0].dims[3]);
+        inference_mobilesam_decoder_utils(&(app_ctx->decoder), img_embeds_nhwc, point_coords, point_labels, iou_predictions, low_res_masks);
+    }
+    gettimeofday(&end_time, NULL);
+    time_us = __get_us(&end_time) - __get_us(&start_time);
+    printf("Average inference time: %lld us\n", time_us / 10);
+    
+    ret = rknn_query(app_ctx->encoder.rknn_ctx, RKNN_QUERY_PERF_DETAIL, &perf_detail, sizeof(perf_detail));
+    printf("Encoder Perf: \n%s\n", perf_detail.perf_data);
+    ret = rknn_query(app_ctx->decoder.rknn_ctx, RKNN_QUERY_PERF_DETAIL, &perf_detail, sizeof(perf_detail));
+    printf("Decoder Perf: \n%s\n", perf_detail.perf_data);
 
     // Post Process
     post_process(app_ctx, iou_predictions, low_res_masks, res, img->height, img->width);

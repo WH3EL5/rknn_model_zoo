@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
+#include <sys/time.h>
 
 #include "mobilenet.h"
 #include "common.h"
@@ -113,7 +114,7 @@ int init_mobilenet_model(const char* model_path, rknn_app_context_t* app_ctx)
         return -1;
     }
 
-    ret = rknn_init(&ctx, model, model_len, 0, NULL);
+    ret = rknn_init(&ctx, model, model_len, RKNN_FLAG_COLLECT_PERF_MASK, NULL);
     free(model);
     if (ret < 0) {
         printf("rknn_init fail! ret=%d\n", ret);
@@ -199,12 +200,20 @@ int release_mobilenet_model(rknn_app_context_t* app_ctx)
     return 0;
 }
 
+long long __get_us(struct timeval* time)
+{
+    return ((long long)time->tv_sec * 1000000LL + time->tv_usec);
+}
+
 int inference_mobilenet_model(rknn_app_context_t* app_ctx, image_buffer_t* src_img, mobilenet_result* out_result, int topk)
 {
     int ret;
     image_buffer_t img;
     rknn_input inputs[1];
     rknn_output outputs[1];
+    struct timeval start_time, end_time;
+    long long time_us;
+    rknn_perf_detail perf_detail;
 
     memset(&img, 0, sizeof(image_buffer_t));
     memset(inputs, 0, sizeof(inputs));
@@ -241,7 +250,8 @@ int inference_mobilenet_model(rknn_app_context_t* app_ctx, image_buffer_t* src_i
     }
 
     // Run
-    printf("rknn_run\n");
+    printf("First rknn_run\n");
+    gettimeofday(&start_time, NULL);
     ret = rknn_run(app_ctx->rknn_ctx, nullptr);
     if (ret < 0) {
         printf("rknn_run fail! ret=%d\n", ret);
@@ -255,6 +265,25 @@ int inference_mobilenet_model(rknn_app_context_t* app_ctx, image_buffer_t* src_i
         printf("rknn_outputs_get fail! ret=%d\n", ret);
         goto out;
     }
+
+    gettimeofday(&end_time, NULL);
+    time_us = __get_us(&end_time) - __get_us(&start_time);
+    printf("First rknn_run time=%lld us\n", time_us);
+
+    printf("Inference 10 times for more stable performance testing...\n");
+    for(int i = 0; i < 10; i++)
+    {
+        rknn_inputs_set(app_ctx->rknn_ctx, 1, inputs);
+        rknn_run(app_ctx->rknn_ctx, nullptr);
+        rknn_outputs_get(app_ctx->rknn_ctx, 1, outputs, NULL);
+        ret = rknn_outputs_release(app_ctx->rknn_ctx, 1, outputs);
+    }
+    gettimeofday(&end_time, NULL);
+    time_us = __get_us(&end_time) - __get_us(&start_time);
+    printf("Average rknn_run time=%lld us\n", time_us / 10);
+    
+    ret = rknn_query(app_ctx->rknn_ctx, RKNN_QUERY_PERF_DETAIL, &perf_detail, sizeof(perf_detail));
+    printf("%s\n", perf_detail.perf_data);
 
     // Post Process
     softmax((float*)outputs[0].buf, app_ctx->output_attrs[0].n_elems);

@@ -52,7 +52,7 @@ int init_whisper_model(const char *model_path, rknn_app_context_t *app_ctx)
     rknn_context ctx = 0;
 
     // Load RKNN Model
-    ret = rknn_init(&ctx, (void *)model_path, model_len, 0, NULL);
+    ret = rknn_init(&ctx, (void *)model_path, model_len, RKNN_FLAG_COLLECT_PERF_MASK, NULL);
     if (ret < 0)
     {
         printf("rknn_init fail! ret=%d\n", ret);
@@ -132,6 +132,11 @@ int release_whisper_model(rknn_app_context_t *app_ctx)
     return 0;
 }
 
+long long __get_us(struct timeval *time)
+{
+    return ((long long)time->tv_sec * 1000000LL + time->tv_usec);
+}
+
 int inference_encoder_model(rknn_app_context_t *app_ctx, std::vector<float> audio_data, float *mel_filters, float *encoder_output)
 {
     int ret;
@@ -190,6 +195,7 @@ out:
 int inference_decoder_model(rknn_app_context_t *app_ctx, float *encoder_output, VocabEntry *vocab, int task_code, std::vector<std::string> &recognized_text)
 {
     int ret;
+    rknn_perf_detail perf_detail;
     rknn_input inputs[2];
     rknn_output outputs[1];
 
@@ -306,29 +312,29 @@ out:
 int inference_whisper_model(rknn_whisper_context_t *app_ctx, std::vector<float> audio_data, float *mel_filters, VocabEntry *vocab, int task_code, std::vector<std::string> &recognized_text)
 {
     int ret;
-    // TIMER timer;
+    TIMER timer;
     float *encoder_output = (float *)malloc(ENCODER_OUTPUT_SIZE * sizeof(float));
     recognized_text.clear();
 
-    // timer.tik();
+    timer.tik();
     ret = inference_encoder_model(&app_ctx->encoder_context, audio_data, mel_filters, encoder_output);
     if (ret != 0)
     {
         printf("inference_encoder_model fail! ret=%d\n", ret);
         goto out;
     }
-    // timer.tok();
-    // timer.print_time("inference_encoder_model");
+    timer.tok();
+    timer.print_time("inference_encoder_model");
 
-    // timer.tik();
+    timer.tik();
     ret = inference_decoder_model(&app_ctx->decoder_context, encoder_output, vocab, task_code, recognized_text);
     if (ret != 0)
     {
         printf("inference_decoder_model fail! ret=%d\n", ret);
         goto out;
     }
-    // timer.tok();
-    // timer.print_time("inference_decoder_model");
+    timer.tok();
+    timer.print_time("inference_decoder_model");
 
 out:
     if (encoder_output != NULL)
